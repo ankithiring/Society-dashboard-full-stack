@@ -115,19 +115,25 @@ function Dashboard() {
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
 
-  // Helpers to render values or 'NOVALUE' when missing
+  // Helpers to parse and render values safely
+  const parseNumber = (v: unknown): number | undefined => {
+    if (v === null || v === undefined || v === "") return undefined;
+    const n = Number(v as any);
+    return Number.isNaN(n) ? undefined : n;
+  };
+
   const fmtCurrencyOrNovalue = (v: unknown) => {
-    if (v === null || v === undefined || v === "") return "NOVALUE";
+    if (v === null || v === undefined || v === "") return "N/A";
     if (typeof v === "number") return `₹${v.toLocaleString()}`;
     const n = Number(v as any);
-    return Number.isNaN(n) ? "NOVALUE" : `₹${n.toLocaleString()}`;
+    return Number.isNaN(n) ? "N/A" : `₹${n.toLocaleString()}`;
   };
 
   const fmtNumberOrNovalue = (v: unknown) => {
-    if (v === null || v === undefined || v === "") return "NOVALUE";
+    if (v === null || v === undefined || v === "") return "N/A";
     if (typeof v === "number") return v;
     const n = Number(v as any);
-    return Number.isNaN(n) ? "NOVALUE" : n;
+    return Number.isNaN(n) ? "N/A" : n;
   };
 
   const normalizeStatus = (s: unknown): Status => {
@@ -156,10 +162,10 @@ function Dashboard() {
     const societyInfo = sd.societyInfo ?? societyInfoFromRoot;
 
     const summaryFromRoot: Summary = {
-      totalCollection: sd.summary?.totalCollection ?? sd.totalCollection ?? sd.TotalCollected,
-      totalExpenses: sd.summary?.totalExpenses ?? sd.totalExpenses ?? sd.TotalExpenses,
-      balanceLeft: sd.summary?.balanceLeft ?? sd.balanceLeft ?? sd.BalanceLeft,
-      collectionRate: sd.summary?.collectionRate ?? sd.collectionRate ?? sd.collectionRatePercent,
+      totalCollection: parseNumber(sd.summary?.totalCollection ?? sd.totalCollection ?? sd.TotalCollected),
+      totalExpenses: parseNumber(sd.summary?.totalExpenses ?? sd.totalExpenses ?? sd.TotalExpenses),
+      balanceLeft: parseNumber(sd.summary?.balanceLeft ?? sd.balanceLeft ?? sd.BalanceLeft),
+      collectionRate: parseNumber(sd.summary?.collectionRate ?? sd.collectionRate ?? sd.collectionRatePercent),
     };
 
     const summary = sd.summary ?? summaryFromRoot;
@@ -168,25 +174,25 @@ function Dashboard() {
     const housesMapped: House[] = housesFromApi
       ? housesFromApi.map((h: any, idx: number) => ({
           id: (h.id ?? h.houseId ?? `H${idx + 1}`).toString().trim(),
-          owner: (h.owner ?? h.Owner ?? "NOVALUE").toString().trim(),
+          owner: (h.owner ?? h.Owner ?? "N/A").toString().trim(),
           due: typeof h.due === "number" ? h.due : typeof h.dueAmount === "number" ? h.dueAmount : Number(h.due) || Number(h.dueAmount) || 0,
           paid: typeof h.paid === "number" ? h.paid : typeof h.paidAmount === "number" ? h.paidAmount : Number(h.paid) || Number(h.paidAmount) || 0,
           status: normalizeStatus(h.status ?? h.Status),
         }))
-      : (houses as House[]);
+      : [];
 
     const txFromApi = (sd.recentTransactions as any[] | undefined) ?? (sd.transactions as any[] | undefined) ?? undefined;
     const txMapped: Transaction[] = txFromApi
       ? txFromApi.map((t: any, idx: number) => ({
           id: typeof t.id === 'number' ? t.id : idx + 1,
-          label: (t.label ?? `${t.houseOwner ?? ''} ${t.activity ?? ''}`).toString().trim(),
+          label: (t.label ?? `${t.houseOwner ?? ''} ${t.activity ?? ''}`).toString().trim() || 'N/A',
           amount: typeof t.amount === 'number' ? t.amount : Number(t.amount) || 0,
           type: t.type === 'in' || t.type === 'income' ? 'in' : 'out',
-          date: t.date ? t.date.toString() : 'NOVALUE',
+          date: t.date ? t.date.toString() : 'N/A',
         }))
-      : (transactions as Transaction[]);
+      : [];
 
-  const expFromApi = (sd.expenseBreakdown as any[] | undefined) ?? (sd.expenses as any[] | undefined) ?? undefined;
+    const expFromApi = (sd.expenseBreakdown as any[] | undefined) ?? (sd.expenses as any[] | undefined) ?? undefined;
     const colorMap: Record<string, string> = {
       Electricity: 'oklch(0.7 0.14 230)',
       Gardening: 'oklch(0.7 0.16 155)',
@@ -202,22 +208,22 @@ function Dashboard() {
 
     const expMapped: Expense[] = expFromApi
       ? expFromApi.map((e: any) => ({
-          name: e.name ?? e.category ?? 'NOVALUE',
+          name: e.name ?? e.category ?? 'N/A',
           value: typeof e.value === 'number' ? e.value : typeof e.amount === 'number' ? e.amount : Number(e.value) || Number(e.amount) || 0,
           color: colorMap[e.name ?? e.category] ?? e.color ?? 'oklch(0.7 0.14 230)',
           icon: iconMap[e.name ?? e.category] ?? Zap,
         }))
-      : (expenses as Expense[]);
+      : [];
 
     const remFromApi = (sd.upcomingMaintenanceDue as any[] | undefined) ?? (sd.reminders as any[] | undefined) ?? undefined;
     const remMapped: Reminder[] = remFromApi
       ? remFromApi.map((r: any, idx: number) => ({
           id: typeof r.id === 'number' ? r.id : idx + 1,
-          owner: r.owner ?? 'NOVALUE',
+          owner: r.owner ?? 'N/A',
           amount: typeof r.amount === 'number' ? r.amount : Number(r.amount) || 0,
-          due: r.due ?? r.dueDate ?? 'NOVALUE',
+          due: r.due ?? r.dueDate ?? 'N/A',
         }))
-      : (reminders as Reminder[]);
+      : [];
 
     return {
       societyInfo,
@@ -239,37 +245,47 @@ function Dashboard() {
     const fetchDashboardData = async () => {
       setDataLoading(true);
       try {
-        // Prefer environment variable VITE_APPS_SCRIPT_URL if present, otherwise replace the
-        // placeholder below with your Apps Script URL.
-        const env = (import.meta as unknown as { env?: { VITE_APPS_SCRIPT_URL?: string } }).env;
-        const baseUrl = env?.VITE_APPS_SCRIPT_URL ?? "/api/exec";
+        const env = (import.meta as unknown as { env?: { VITE_BACKEND_URL?: string } }).env;
+        const backendUrl = env?.VITE_BACKEND_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
 
-        // Attach month/year as query params. If baseUrl is relative ("/api/exec"),
-        // construct the URL using the current origin to avoid "Invalid URL" errors.
-        let u: URL;
-        try {
-          if (/^https?:\/\//i.test(baseUrl)) {
-            u = new URL(baseUrl);
-          } else if (typeof window !== "undefined" && window.location) {
-            u = new URL(baseUrl, window.location.origin);
-          } else {
-            // Fallback for non-browser environments
-            u = new URL("/", "http://localhost");
-            u.pathname = baseUrl;
-          }
-        } catch (e) {
-          console.error("Failed to build request URL for dashboard fetch", { baseUrl, err: e });
-          throw e;
+        const [summaryRes, housesRes, expensesRes, transactionsRes] = await Promise.all([
+          fetch(`${backendUrl}/api/dashboard/summary`, { method: "GET", mode: "cors", credentials: "omit" }),
+          fetch(`${backendUrl}/api/houses`, { method: "GET", mode: "cors", credentials: "omit" }),
+          fetch(`${backendUrl}/api/expenses/breakdown`, { method: "GET", mode: "cors", credentials: "omit" }),
+          fetch(`${backendUrl}/api/transactions/recent`, { method: "GET", mode: "cors", credentials: "omit" }),
+        ]);
+
+        const errors = [
+          !summaryRes.ok && `summary ${summaryRes.status}`,
+          !housesRes.ok && `houses ${housesRes.status}`,
+          !expensesRes.ok && `expenses ${expensesRes.status}`,
+          !transactionsRes.ok && `transactions ${transactionsRes.status}`,
+        ].filter(Boolean);
+
+        if (errors.length) {
+          throw new Error(`Dashboard fetch failed: ${errors.join(", ")}`);
         }
-        u.searchParams.set("month", String(selectedMonth + 1)); // 1-12
-        u.searchParams.set("year", String(selectedYear));
-        const res = await fetch(u.toString(), { method: "GET", mode: "cors", credentials: "omit" });
-        if (!res.ok) throw new Error("Network response was not ok: " + res.statusText);
-  const json = await res.json();
-  // Debug log to inspect server response shape when developing
-  console.debug("fetched dashboard json for", { month: selectedMonth + 1, year: selectedYear, json });
-  // Expecting an object with optional keys: houses, expenses, transactions, reminders, stats
-  setDashboardData(json as DashboardData);
+
+        const [summaryJson, housesJson, expensesJson, transactionsJson] = await Promise.all([
+          summaryRes.json(),
+          housesRes.json(),
+          expensesRes.json(),
+          transactionsRes.json(),
+        ]);
+
+        console.debug("Dashboard data loaded", {
+          summaryJson,
+          housesJson,
+          expensesJson,
+          transactionsJson,
+        });
+
+        setDashboardData({
+          ...summaryJson,
+          housesPaymentStatus: Array.isArray(housesJson) ? housesJson : undefined,
+          expenseBreakdown: Array.isArray(expensesJson) ? expensesJson : undefined,
+          recentTransactions: Array.isArray(transactionsJson) ? transactionsJson : undefined,
+        } as DashboardData);
         setDataError(null);
       } catch (err: unknown) {
         console.error("Fetch dashboard data error:", err);
@@ -445,8 +461,8 @@ function Dashboard() {
                 <tbody>
                   {filtered.map((h) => (
                     <tr key={h.id} className="border-t border-border transition hover:bg-muted/40">
-                      <td className="px-5 py-3.5 font-medium text-foreground">{h.id ?? 'NOVALUE'}</td>
-                      <td className="px-5 py-3.5 text-foreground">{h.owner ?? 'NOVALUE'}</td>
+                      <td className="px-5 py-3.5 font-medium text-foreground">{h.id ?? 'N/A'}</td>
+                      <td className="px-5 py-3.5 text-foreground">{h.owner ?? 'N/A'}</td>
                       <td className="px-5 py-3.5 text-muted-foreground">
                         {fmtCurrencyOrNovalue(h.due)}
                       </td>
@@ -597,8 +613,8 @@ function Dashboard() {
                       )}
                     </span>
                     <div>
-                      <p className="text-sm font-medium text-foreground">{t.label ?? 'NOVALUE'}</p>
-                      <p className="text-xs text-muted-foreground">{t.date ?? 'NOVALUE'}</p>
+                      <p className="text-sm font-medium text-foreground">{t.label ?? 'N/A'}</p>
+                      <p className="text-xs text-muted-foreground">{t.date ?? 'N/A'}</p>
                     </div>
                   </div>
                   <span
@@ -628,9 +644,9 @@ function Dashboard() {
                   className="flex items-center justify-between px-5 py-4 transition hover:bg-muted/40"
                 >
                   <div>
-                    <p className="text-sm font-medium text-foreground">{r.owner ?? 'NOVALUE'}</p>
+                    <p className="text-sm font-medium text-foreground">{r.owner ?? 'N/A'}</p>
                     <p className="text-xs text-muted-foreground">
-                      Due {fmtCurrencyOrNovalue(r.amount)} • {r.due ?? 'NOVALUE'}
+                      Due {fmtCurrencyOrNovalue(r.amount)} • {r.due ?? 'N/A'}
                     </p>
                   </div>
                   <button className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:border-primary hover:text-primary">
