@@ -3,6 +3,7 @@
 
 # Ignore environment files
 **/.env
+**/society-dashboard-backend/service-account-key.json
 
 # Ignore build outputs
 **/dist/
